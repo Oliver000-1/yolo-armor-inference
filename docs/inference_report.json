@@ -1,0 +1,32 @@
+{
+  "model": {
+    "task": "pose",
+    "names": {
+      "0": "B1",
+      "1": "B2",
+      "2": "B3",
+      "3": "R1",
+      "4": "R2",
+      "5": "R3"
+    },
+    "keypoint_shape": [
+      4,
+      2
+    ]
+  },
+  "source": "videos\\armor_original.mp4",
+  "output": "outputs\\armor_result.mp4",
+  "device": "cpu",
+  "confidence_threshold": 0.25,
+  "image_size": 640,
+  "frames": 410,
+  "input_metadata_frames": 410,
+  "fps": 30.0,
+  "duration_seconds": 13.666666666666666,
+  "detected_frames": 410,
+  "total_detections": 636,
+  "verified_output_frames": 410,
+  "elapsed_seconds": 31.01,
+  "screenshot": "outputs\\armor_result.jpg",
+  "warnings": []
+}
