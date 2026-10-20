@@ -1,0 +1,44 @@
+{
+  "prediction_reports": {
+    "pt": "docs\\pt_640_report.json",
+    "onnx": "docs\\onnx_640_report.json"
+  },
+  "playback_videos": {
+    "pt": {
+      "path": "outputs\\armor_pt_640_h264.mp4",
+      "sha256": "5f7c192a642cab7d6917938d98147fa09006984d772bab7378ba03aa75f47276",
+      "bytes": 10402091,
+      "decoded_frames": 410,
+      "fps": 30.0,
+      "width": 1280,
+      "height": 720,
+      "codec": "h264"
+    },
+    "onnx": {
+      "path": "outputs\\armor_onnx_640_h264.mp4",
+      "sha256": "5f7c192a642cab7d6917938d98147fa09006984d772bab7378ba03aa75f47276",
+      "bytes": 10402091,
+      "decoded_frames": 410,
+      "fps": 30.0,
+      "width": 1280,
+      "height": 720,
+      "codec": "h264"
+    }
+  },
+  "user_playback_review": {
+    "onnx": "confirmed by user: 可以的",
+    "pt": "programmatic decode verified; H.264 file SHA-256 matches the user-confirmed ONNX video"
+  },
+  "repository_video_files": {
+    "pt": {
+      "path": "results/armor_pt_640.mp4",
+      "sha256": "5f7c192a642cab7d6917938d98147fa09006984d772bab7378ba03aa75f47276",
+      "bytes": 10402091
+    },
+    "onnx": {
+      "path": "results/armor_onnx_640.mp4",
+      "sha256": "5f7c192a642cab7d6917938d98147fa09006984d772bab7378ba03aa75f47276",
+      "bytes": 10402091
+    }
+  }
+}

@@ -1,152 +1,148 @@
-# 装甲板视频推理
+# YOLO 模型导出、推理与性能对比
 
-使用课程提供的 `best.pt` 对视频逐帧推理，显示检测框、类别、置信度和每个目标的四个预测关键点。无需重新训练。
+本周沿用上次课程提供的装甲板模型，将 PyTorch `.pt` 权重导出为 ONNX，用同一段本人实拍视频分别推理，并在同一台电脑的 CPU 上完成预热和三轮性能对比。无需重新训练。
 
-**当前阶段：已完成本人实拍视频的 CPU 推理和本地结果检查，待更新 PR 并合并。**
+**本机实验结论：ONNX 平均预测耗时从 58.257 ms/帧降至 42.044 ms/帧，降低约 27.8%。六次完整运行的逐帧检测数量一致。** 本次未定量评估检测精度。
 
-2026-10-13 本地准备验证：权重成功加载，架构配置为 `yolo26n-pose.yaml`，类别为 B1/B2/B3/R1/R2/R3，关键点形状为 `[4, 2]`。使用 10 帧空白程序测试视频执行 CPU 推理，结果 10 帧均成功解码；没有检测属于此空白测试的预期结果，不代表实拍表现。
+## 模型、素材与结果下载
 
-## 环境与文件
+仓库附有两种模型、原视频和两份 H.264 结果，单个文件均小于 11 MiB，可以直接下载，无需 Git LFS。
 
-- Python 3.12，默认使用 CPU，不要求 NVIDIA 显卡。
-- 主要依赖：Ultralytics、OpenCV、NumPy，版本见 `requirements.txt`。
-- 模型由课程/学长提供，不包含在仓库中。将原下载文件 `best (1).pt` 复制为 `models/best.pt`。
-- 本人原始视频放在 `videos/armor_original.mp4`；MOV 等格式也可通过参数指定。
-- 权重、原始视频、结果视频、虚拟环境和自动输出已由 `.gitignore` 排除。
+| 内容 | 仓库位置 | 大小 | 直接下载 |
+|---|---|---:|---|
+| 原始 PyTorch 模型 | `models/best.pt` | 5.62 MiB | [best.pt](https://raw.githubusercontent.com/Oliver000-1/yolo-armor-inference/main/models/best.pt) |
+| 导出 ONNX 模型 | `models/best.onnx` | 9.72 MiB | [best.onnx](https://raw.githubusercontent.com/Oliver000-1/yolo-armor-inference/main/models/best.onnx) |
+| 本人原始测试视频 | `videos/armor_original.mp4` | 4.23 MiB | [原视频](https://raw.githubusercontent.com/Oliver000-1/yolo-armor-inference/main/videos/armor_original.mp4) |
+| PyTorch 推理结果 | `results/armor_pt_640.mp4` | 9.92 MiB | [PyTorch 视频](https://raw.githubusercontent.com/Oliver000-1/yolo-armor-inference/main/results/armor_pt_640.mp4) |
+| ONNX 推理结果 | `results/armor_onnx_640.mp4` | 9.92 MiB | [ONNX 视频](https://raw.githubusercontent.com/Oliver000-1/yolo-armor-inference/main/results/armor_onnx_640.mp4) |
 
-```text
-infer.py                推理、绘制、保存及输出验证
-requirements.txt        主要依赖
-models/best.pt          自行准备，不进入 Git
-videos/armor_original.mp4 本人实拍，不进入 Git
-outputs/                自动生成的视频、截图与统计，不进入 Git
-docs/                   手动挑选的真实代表截图，可进入 Git
-```
+权重来自课程提供的 `best (1).pt`；架构为 `yolo26n-pose.yaml`，包含 B1/B2/B3/R1/R2/R3 六类，每个目标有四个 XY 预测关键点。测试素材是本人上次在 D414 拍摄的同一段视频：1280×720、30 FPS、410 帧、约 13.67 秒。
 
-## 安装（Windows PowerShell）
+## 环境与安装
 
-在项目文件夹内执行；命令直接使用虚拟环境的 Python，无需激活环境。
+- 实测环境：Windows 10，Intel Core i7-10850H，Python 3.12.10。
+- 本次统一 CPU、FP32。PyTorch 为 `2.14.1+cpu`，ONNX Runtime 使用 `CPUExecutionProvider`；本机 Quadro T2000 显卡未参与本次实验。
+- [requirements.txt](requirements.txt) 固定直接依赖：Ultralytics 8.4.176、PyTorch 2.14.1、torchvision 0.29.1、OpenCV 5.0.0.93、NumPy 2.5.4、ONNX 1.23.2、ONNX Runtime 1.31.0、ONNX Slim 0.1.98。
+
+Windows PowerShell：
 
 ```powershell
+git clone https://github.com/Oliver000-1/yolo-armor-inference.git
+cd yolo-armor-inference
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-若创建虚拟环境时 `ensurepip` 失败，但 `.venv/Scripts/python.exe` 已生成，可以使用系统 Python 的 pip 安装：
+直接调用虚拟环境 Python，无需激活。若创建虚拟环境时 `ensurepip` 失败，但 `.venv/Scripts/python.exe` 已生成，可使用系统 pip：
 
 ```powershell
 python -m pip --python .\.venv\Scripts\python.exe install pip -r requirements.txt
 ```
 
-## 运行
+## 模型导出
 
-先检查模型类别和关键点数：
+[export.py](export.py) 检查模型任务、类别与关键点结构，在临时目录导出、校验后才保存新模型。原始 `.pt` 保持不变，已有同名模型或报告时拒绝覆盖。仓库已附 `best.onnx`；如要重新导出，使用新文件名：
+
+```powershell
+.\.venv\Scripts\python.exe export.py --model models/best.pt --output models/best_reexport.onnx --imgsz 640
+```
+
+参数为 CPU、FP32（`quantize=32`）、静态输入 `[1, 3, 640, 640]`、batch 1、opset 18、图简化。原模型普通预测分支为 `end2end=False`，使用 `nms=None` 导出原始预测，阈值过滤与 NMS 在后续推理时完成。
+
+检查包括 ONNX 图结构、任务/类别/关键点元数据、输入尺寸和类型，以及 CPU 空白输入试运行。空白输入只验证模型能够执行。实际参数、版本、大小和原始/导出文件 SHA-256 指纹见 [导出报告](models/best.export.json)。
+
+## 两种模型的推理
+
+[infer.py](infer.py) 支持 `.pt` 与 `.onnx`，直接读取每个目标的预测关键点；ONNX 从模型元数据读取类别和关键点结构，由 ONNX Runtime 执行推理。
 
 ```powershell
 .\.venv\Scripts\python.exe infer.py --model models/best.pt --check-model
+.\.venv\Scripts\python.exe infer.py --model models/best.onnx --check-model
+.\.venv\Scripts\python.exe infer.py --model models/best.pt --source videos/armor_original.mp4 --output outputs/armor_pt_640.mp4 --device cpu --conf 0.25 --iou 0.7 --imgsz 640
+.\.venv\Scripts\python.exe infer.py --model models/best.onnx --source videos/armor_original.mp4 --output outputs/armor_onnx_640.mp4 --device cpu --conf 0.25 --iou 0.7 --imgsz 640
 ```
 
-实拍后执行：
+两种格式共用 `prediction_options()`：`rect=False` 等比例缩放并补边到完整 640×640，CPU、FP32、conf 0.25、IoU 0.7、batch 1、max_det 300。原视频的分辨率、帧数和播放 FPS 保持一致。使用重新导出的模型时，将对应 `--model` 替换为 `models/best_reexport.onnx`。
+
+每次保存完整 MP4、JSON、最高框置信度截图，以及第 0、90、180、270、360 帧的同帧截图。框和四点按目标配对；点号表示模型输出顺序，目标编号只在单帧内有效。已有结果时需更换 `--output`，脚本拒绝覆盖。
+
+### 实际结果
+
+| 对比项目 | 原始 `.pt` | ONNX |
+|---|---|---|
+| 模型大小 | 5,892,455 字节，5.62 MiB | 10,196,332 字节，9.72 MiB |
+| 输入/输出帧数 | 410 / 410 | 410 / 410 |
+| 输出规格 | 1280×720，30 FPS，13.67 秒 | 1280×720，30 FPS，13.67 秒 |
+| 每轮逐帧检测总次数 | 634，全部为 B3 | 634，全部为 B3 |
+| 平均每帧预测耗时 | 58.257 ms | 42.044 ms |
+| 预测吞吐量 | 17.17 FPS | 23.78 FPS |
+
+634 是跨帧累计检测次数，同一物体会在不同帧重复计数。没有人工真值标注，未计算准确率、召回率或关键点误差；相同框数不表示所有浮点坐标完全相同。
+
+同一第 180 帧（约 6 秒），两者均显示两个 B3 目标及各自四个预测关键点：
+
+PyTorch：
+
+![PyTorch 第180帧](docs/pt_640_frame180.jpg)
+
+ONNX：
+
+![ONNX 第180帧](docs/onnx_640_frame180.jpg)
+
+完整记录见 [PyTorch 推理统计](docs/pt_640_report.json)、[ONNX 推理统计](docs/onnx_640_report.json)。其中 `elapsed_seconds` 包含读写、绘图和输出检查，正式测速使用下一节独立记录。
+
+## 公平测速
+
+[benchmark.py](benchmark.py) 校验两种模型的导出来源，复用上述预测参数。每个模型先预热 10 帧，再按 `.pt → ONNX → .pt → ONNX → .pt → ONNX` 顺序各运行三遍完整视频。
 
 ```powershell
-.\.venv\Scripts\python.exe infer.py --model models/best.pt --source videos/armor_original.mp4 --output outputs/armor_result.mp4 --device cpu --conf 0.25 --imgsz 640
+.\.venv\Scripts\python.exe -u benchmark.py --warmup 10 --repeats 3 --imgsz 640 --conf 0.25 --iou 0.7 --output docs/benchmark_cpu_reproduce.json --report comparison_reproduce.md
 ```
 
-如使用其他路径，将参数替换为实际路径，包含空格时加双引号。
-有可用 CUDA 环境时可将 `--device cpu` 改为 `--device 0`；当前准备的是 CPU 环境。
+这里使用新输出名保留仓库附带的实验记录；再次复现时需继续更换 `--output` 和 `--report`。若使用重新导出的模型，增加 `--onnx-model models/best_reexport.onnx`。
 
-输出文件：
+计时使用 `time.perf_counter_ns()`，只覆盖同步返回的 `model.predict(...)`，包含预处理、网络前向和后处理，排除视频解码、模型加载、预热、计数、绘图、日志和文件保存。FPS 是预测调用吞吐量，结果视频仍以 30 FPS 播放。
 
-- `outputs/armor_result.mp4`：与输入逐帧对应的静音结果视频，使用输入 FPS，不加速播放。保留原始视频作为作业附件。
-- `outputs/armor_result.json`：输入/输出帧数、时长、检测统计、运行参数和警告。
-- `outputs/armor_result.jpg`：存在检测时，自动保存最高框置信度帧；需要人工确认其能清晰展示关键点。
+[原始测速记录](docs/benchmark_cpu.json) 包含全部 2460 次正式预测的逐帧时间、三轮计数、执行顺序、模型指纹、CPU、库版本和线程配置。PyTorch 使用 8 个算子线程，ONNX Runtime 使用默认自动线程策略。每轮结果、波动与解释见 [comparison.md](comparison.md)。
 
-已有同名输出时脚本拒绝覆盖；重新运行请换名字，例如 `outputs/armor_result_v2.mp4`。
-脚本会完整解码输出视频检查帧数；提交前仍应在播放器中人工检查画面与关键点。
-若网页播放器不支持生成的 MP4 编码，可用视频转码工具转为 H.264 MP4，并重新检查。
+本机本次 ONNX 平均每帧预测耗时降低约 27.8%，吞吐量约为 PyTorch 的 1.39 倍。差异可能受运行时算子优化、图优化、线程策略及系统负载影响，本实验未逐项消融这些因素；结论适用于此处记录的 CPU 环境。
 
-## 主要代码如何工作
+## 问题与理解
 
-1. `load_model()` 加载权重，检查 pose 任务、六类名称以及每个目标的四关键点结构。
-2. `run()` 用 OpenCV 逐帧读取视频，调用 `model.predict()`。
-3. `annotate()` 从 `result.boxes` 取框、类别和置信度，从 `result.keypoints.data` 取模型预测的坐标，不用框角替代。
-4. 目标框与其关键点使用相同颜色，`#1` 对应 `1:1` 至 `1:4`。目标编号仅在单帧内有效，不是跨帧追踪 ID。
-5. `run()` 保存视频、检测代表帧和 JSON，并检查结果视频能否完整解码。
+1. **输入尺寸如何统一？** `.pt` 可能自动使用较小矩形输入，静态 ONNX 固定 640×640。本次统一 `rect=False` 并重新测量 `.pt`，上周结果作为历史保留。
+2. **为什么 ONNX 文件更大？** 检查到原 checkpoint 参数以 FP16 保存，本次 ONNX 按 FP32 导出，两者 CPU 推理都为 FP32。图结构和文件组织也会影响大小，格式转换不保证文件更小。
+3. **如何检查 ONNX 关键点？** ONNX 保存计算图，不能直接读取 Python 网络最后一层。本次从元数据及预测结果检查类别、输入和四点结构。
+4. **如何保证可播放？** OpenCV 输出 `mp4v` 后转换成 H.264，完整解码核对帧数、分辨率和 FPS。用户已确认 ONNX 视频可以播放，两份 H.264 交付文件的 SHA-256 相同。
+5. **效果有哪些局限？** 本视频主要验证 B3。侧面大角度目标有漏检，快速转动有运动模糊；保留全部帧和真实预测，不手动修正关键点，其他五类未得到充分验证。
 
-关键点未设额外置信度过滤，以便如实观察四点位置；非有限值或画面外坐标无法绘制，不人为修正。点号是模型输出顺序，未确认训练标注前不宣称它一定是某个方向的角。
+`.pt` 用于 PyTorch 生态，ONNX 用计算图表达模型，交给 ONNX Runtime 等工具执行。导出后还要验证加载、真实推理、效果和性能，速度取决于硬件及运行时。
 
-## 本人拍摄信息
-
-| 项目 | 实际记录 |
-|---|---|
-| 地点 | 水建学院 D414 实验室，本人拍摄 |
-| 拍摄日期 | 2026 年 10 月 14 日下午 |
-| 时长 | 13.67 秒，410 帧 |
-| 分辨率及方向 | 输入文件 1280×720，30 FPS，横屏；未记录设备型号 |
-| 场景 | 室内机器人底盘转动，蓝色数字 3 装甲板随转动改变朝向；拍摄视角和目标大小也有变化，存在运动模糊与地面反光 |
-
-## 真实结果与问题记录
-
-- 实际运行命令为上文的 CPU 推理命令，`--conf 0.25 --imgsz 640`，未重新训练或调整检测结果。
-- 输入与输出均为 410 帧、30 FPS、约 13.67 秒；410 帧均至少有一个检测框，共 636 次逐帧目标检测（不是 636 个独立物体）。本次脚本运行耗时约 31.01 秒，含结果解码校验，不是纯模型测速。
-- 完整解码输出视频通过。没有人工逐帧真值标注，不能据此声称 100% 准确率或召回率。
-- 抽查 0、3、6、9、12 秒：正面蓝色数字 3 装甲板可识别为 B3，显示置信度约 0.84～0.90；6 秒和 12 秒可同时显示两个目标及各自四点。
-- 0 秒、3 秒和 9 秒附近，侧面大角度可见装甲板未全部检出。快速转动时有运动模糊，侧向目标的点位受透视影响；未对关键点精度作定量评价，也未手工修正模型预测。
-- 抽查帧中未发现明显类别错误，但不据此断言全片无误检。本视频仅能验证当前 B3 场景，不能验证其他五类的表现。
-- 处理方式：保留默认阈值及全部帧，真实记录侧面漏检。另将结果转为 H.264 MP4 以提高播放兼容性，未改变帧数和播放速度。
-
-![代表性结果：B3 检测框、置信度和四个预测关键点](docs/result.jpg)
-
-![约 6 秒：两个目标用不同颜色与编号区分](docs/result_multi.jpg)
-
-### 作业附件
-
-原始文件保存在 `videos/armor_original.mp4`，是收到的本人实拍文件的直接副本。推理结果提交版为 `outputs/armor_result_submit.mp4`，来自以下转码命令（需要 FFmpeg）：
+H.264 转换命令（FFmpeg 是可选的独立视频工具）：
 
 ```powershell
-ffmpeg -hide_banner -n -i outputs/armor_result.mp4 -c:v libx264 -crf 20 -pix_fmt yuv420p -movflags +faststart -an outputs/armor_result_submit.mp4
+ffmpeg -hide_banner -n -i outputs/armor_pt_640.mp4 -map 0:v:0 -c:v libx264 -crf 20 -pix_fmt yuv420p -movflags +faststart -an outputs/armor_pt_640_h264.mp4
+ffmpeg -hide_banner -n -i outputs/armor_onnx_640.mp4 -map 0:v:0 -c:v libx264 -crf 20 -pix_fmt yuv420p -movflags +faststart -an outputs/armor_onnx_640_h264.mp4
 ```
 
-两个视频分别作为作业附件上传，不进入 Git。统计信息见 `docs/inference_report.json`。提交前用播放器播放完整视频确认效果。
+`results/` 中的交付视频是上述播放文件的副本。程序解码、文件指纹及用户播放确认见 [验证记录](docs/inference_comparison_checks.json)。
 
-## GitHub 与 PR 流程
+## 项目结构与提交
 
-仓库为 [Oliver000-1/yolo-armor-inference](https://github.com/Oliver000-1/yolo-armor-inference)，开发分支为 `feat/yolo-inference`，目标分支为 `main`。[PR #1](https://github.com/Oliver000-1/yolo-armor-inference/pull/1) 已创建；实拍结果更新后由本人完成合并。初始化提交由 Codex 工具署名，功能提交使用本人 Git 身份。
-
-1. 在自己的 GitHub 账号创建 **Public** 仓库 `yolo-armor-inference`。本地已有 README，网页创建时不要重复初始化文件。
-2. 设置自己的 Git 提交身份（使用 GitHub 设置里提供的 noreply 邮箱也可以），并关联仓库：
-
-```powershell
-git config user.name "你的 GitHub 用户名"
-git config user.email "你的提交邮箱"
-git remote -v
-# 本地已有 origin；若使用不同仓库，可执行：
-# git remote set-url origin https://github.com/你的用户名/你的仓库名.git
-git push -u origin main
+```text
+export.py                 导出、来源记录与 ONNX 校验
+infer.py                  双格式视频推理、绘制及输出检查
+benchmark.py              预热、三轮测速与报告生成
+requirements.txt          固定依赖版本
+models/                   .pt、ONNX、导出报告
+videos/armor_original.mp4 同一段本人实拍测试视频
+results/                  两种模型的 H.264 交付视频
+docs/                     实验记录、截图和上周说明归档
+comparison.md             完整性能对比
+outputs/                  本地自动输出，不进入 Git
 ```
 
-3. 拍摄、运行验证并补全 README 后，检查将提交的内容：
+本周提交 [个人 GitHub 仓库链接](https://github.com/Oliver000-1/yolo-armor-inference)，具体位置和截止时间以算法组本周通知为准。GitHub 文件发布与课程提交是独立步骤，应在指定收集渠道确认收到仓库链接。
 
-```powershell
-git status
-git add infer.py requirements.txt README.md .gitignore .github docs
-git diff --cached --stat
-git commit -m "完成装甲板视频推理与关键点显示"
-git push -u origin feat/yolo-inference
-```
+上周内容保留：[说明归档](docs/previous_assignment.md)、[原截图说明](docs/README.md)、[已合并 PR #1](https://github.com/Oliver000-1/yolo-armor-inference/pull/1)。
 
-4. 在 GitHub 创建 PR：base 为 `main`，compare 为 `feat/yolo-inference`，双方均属于自己的仓库。补全 PR 模板中的实际验证结果。
-5. 检查差异包含推理代码、依赖和 README，然后本人合并；确认显示 **Merged**，且 main 有完整代码。
-
-## 提交前清单
-
-- [x] 视频是本人在 D414 拍摄的 10～30 秒原始素材。
-- [x] README 拍摄信息、真实结果和代表截图已补齐。
-- [ ] 公开仓库链接有效，PR 状态是 Merged。
-- [ ] 原始视频和结果视频均可播放，每个不超过 100 MiB。
-- [ ] 作业说明包含仓库链接和 PR 链接，附件包含两个视频。
-- [ ] 已点击“提交作业”并确认；重交时上传完整的一组附件。
-
-截止：北京时间 **2026-10-18 00:00**，即 10 月 17 日周六结束时。
-
-API 参考：[Ultralytics Pose 文档](https://docs.ultralytics.com/tasks/pose/)。
+接口参考：[Ultralytics Pose](https://docs.ultralytics.com/tasks/pose/)、[ONNX 导出与推理](https://docs.ultralytics.com/integrations/onnx/)。

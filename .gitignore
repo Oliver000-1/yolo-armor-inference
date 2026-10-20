@@ -8,7 +8,14 @@ __pycache__/
 *.MOV
 *.avi
 *.webm
-videos/
+videos/*
 outputs/
 .local/
 .env
+
+# 本周交付只纳入指定模型、测试视频和结果视频。
+!models/best.pt
+!models/best.onnx
+!videos/armor_original.mp4
+!results/armor_pt_640.mp4
+!results/armor_onnx_640.mp4
